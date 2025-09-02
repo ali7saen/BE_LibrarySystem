@@ -119,7 +119,6 @@ async function insertBook(req, res, next) {
 async function getAllBooks(req, res, next) {
     try {
         const { cageId, bookCategory } = req.query;
-        console.log(cageId, bookCategory);
         const books = await bookService.getAllBooks(bookCategory, cageId);
         return successResponse(res, books);
     } catch (error) {
@@ -139,10 +138,94 @@ async function deleteBook(req, res, next) {
     }
 }
 
+async function activateBook(req, res, next) {
+    try {
+        const { bookId } = req.query;
+        const userId = req.user.user_id;
+
+        await bookService.activateBook(bookId, userId);
+        return successResponse(res, { message: "Book activated successfully" });
+    } catch (error) {
+        next(error);
+    }
+}
+
+async function editBook(req, res, next) {
+    try {
+        const bookData = req.body;
+        const user_id = req.user.user_id;
+
+        const result = await bookService.editBook(bookData, user_id);
+        return successResponse(res, result);
+    } catch (error) {
+        next(error);
+    }
+}
+
+async function getBookByBookId(req, res, next) {
+    try {
+        const { bookId } = req.params;
+
+        const book = await bookService.getBookByBookId(bookId);
+        return successResponse(res, book);
+    } catch (error) {
+        next(error);
+    }
+}
+
+async function getAllBorrowedBooks(req, res, next) {
+    try {
+
+        const { startDate, endDate } = req.query;
+
+        const books = await bookService.getAllBorrowedBooks(startDate, endDate);
+        return successResponse(res, books);
+    } catch (error) {
+        next(error);
+    }
+}
+
+async function changeBookCage(req, res, next) {
+    try {
+        const { bookId, cageId, shelveId, bookSequence } = req.body;
+        const userId = req.user.user_id;
+
+        const result = await bookService.changeBookCage({ bookId, cageId, shelveId, bookSequence }, userId);
+        return successResponse(res, result);
+    } catch (error) {
+        next(error);
+    }
+}
+
+async function sendBookToTempStore(req, res, next) {
+    try {
+        const { bookId } = req.body;
+        const userId = req.user.user_id;
+
+        const result = await bookService.sendBookToTempStore(bookId, userId);
+        return successResponse(res, result);
+    } catch (error) {
+        next(error);
+    }
+}
+
+async function reorderShelveBookSequence(req, res, next) {
+    try {
+        const { shelveId } = req.query;
+        const userId = req.user.user_id;
+
+        const result = await bookService.reorderShelveBookSequence(shelveId, userId);
+        return successResponse(res, result);
+    } catch (error) {
+        next(error);
+    }
+}
+
 module.exports = {
     getBooksCount,
     searchBooks,
     getBooksCategories,
+    getAllBorrowedBooks,
     getByCategory,
     getMyBorrowedBooks,
     returnBook,
@@ -151,5 +234,11 @@ module.exports = {
     insertBook,
     getAllBooks,
     getBooksByCageId,
-    deleteBook
+    deleteBook,
+    editBook,
+    activateBook,
+    getBookByBookId,
+    changeBookCage,
+    sendBookToTempStore,
+    reorderShelveBookSequence
 }

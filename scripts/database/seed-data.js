@@ -166,6 +166,47 @@ async function insertBooks(filePath, book_category) {
 
 
 
+async function insertAuthorName(filePath = null) {
+
+    const bookObjects = []
+    const db = await pool.connect();
+
+    const booksQuery = `
+        SELECT * FROM books
+    `
+
+    const books = (await db.query(booksQuery)).rows;
+
+    const authors = JSON.parse(fs.readFileSync(path.join(__dirname, filePath), 'utf-8'));
+
+    for (const book of books) {
+        for (const author of authors) {
+            if (book.book_title === author.book_title) {
+                bookObjects.push({
+                    book_id: book.book_id,
+                    book_author: author.book_author
+                })
+            }
+        }
+    }
+
+    // for (const element of bookObjects) {
+    //     await db.query(
+    //         "UPDATE books SET book_author = $1 WHERE book_id = $2;",
+    //         [
+    //             element.book_author,
+    //             element.book_id
+    //         ]
+    //     )
+    // }
+
+    // console.log(bookObjects.length);
+    // console.log(authors);
+
+    fs.writeFileSync(path.join(__dirname, '../data/books.json'), JSON.stringify(books, null, 2), 'utf-8')
+    console.log(books);
+    process.exit()
+}
 
 
 
@@ -175,3 +216,6 @@ async function insertBooks(filePath, book_category) {
 // insertCages(path.join(__dirname, "../data/الحديث.json"), JSON.stringify(["الحديث"]))
 // insertShelves(path.join(__dirname, "../data/الحديث.json"))
 // insertBooks(path.join(__dirname, "../data/الحديث.json"), "الحديث")
+
+
+insertAuthorName("../data/authors.json");

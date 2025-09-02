@@ -3,6 +3,11 @@ const Joi = require('joi');
 // Base book schema
 const bookBaseSchema = {
 
+    book_id: Joi.string().uuid()
+        .trim()
+        .messages({
+            'string.empty': 'Book ID is required'
+        }),
     book_title: Joi.string()
         .min(2)
         .max(255)
@@ -56,6 +61,19 @@ const createBookDto = Joi.object({
 });
 
 
+
+// Update Book DTO - for user registration
+const updateBookDto = Joi.object({
+    book_id: bookBaseSchema.book_id.required(),
+    book_title: bookBaseSchema.book_title.required(),
+    book_author: bookBaseSchema.book_author.required(),
+    book_category: bookBaseSchema.book_category.required(),
+    book_sequence: bookBaseSchema.book_sequence.required(),
+    cage_id: bookBaseSchema.cage_id.required(),
+    shelve_id: bookBaseSchema.shelve_id.required()
+});
+
+
 // Validation function
 const validateDto = (schema, data, options = {}) => {
     const defaultOptions = {
@@ -100,6 +118,7 @@ class BookDto {
 
         this.shelve_number = data.shelve_number;
         this.is_available = data.is_available;
+        this.is_active = data.is_active;
         this.created_at = data.created_at
 
         this.borrowed_by = data.borrowed_by;
@@ -138,5 +157,6 @@ module.exports = {
 
 
     // Individual validators for easy use
-    validateCreateBook: (data) => validateDto(createBookDto, data)
+    validateCreateBook: (data) => validateDto(createBookDto, data),
+    validateUpdateBook: (data) => validateDto(updateBookDto, data)
 }

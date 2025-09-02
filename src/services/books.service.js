@@ -1,6 +1,6 @@
 const db = require("../config/database")
-const { BookDto, BorrowedBookDto, validateCreateBook } = require("../dto/bookDto")
-
+const { BookDto, BorrowedBookDto, validateCreateBook, validateUpdateBook } = require("../dto/bookDto")
+const {checkSequenceIntegrity} = require("../utils/library")
 
 
 async function getBookCount() {
@@ -13,8 +13,8 @@ async function getBookCount() {
 }
 
 async function getBooksByShelveId(shelveId) {
-    const query = `SELECT * FROM books WHERE shelve_id = $1`
-    const queryParams = [shelveId, true]
+    const query = `SELECT * FROM books WHERE shelve_id = $1 ORDER BY book_sequence ASC`
+    const queryParams = [shelveId]
 
     const result = await db.query(query, queryParams);
 
@@ -252,7 +252,10 @@ async function insertBook(book, user_id) {
     return new BookDto(result.rows[0]);
 }
 
-async function getAllBooks(book_category, cage_id) {
+async function getAllBooks(book_category, cage_id, page = 1, limit = 50) {
+
+    const offset = (page - 1) * limit;
+
     let query = `
         SELECT 
             book_id,
@@ -260,7 +263,8 @@ async function getAllBooks(book_category, cage_id) {
             book_author,
             book_category,
             is_active,
-            cage_id
+            cage_id,
+            shelve_id
         FROM books 
     `;
     const params = [];
@@ -298,6 +302,159 @@ async function deleteBook(book_id, userId) {
     await db.query(query, [false, userId, book_id]);
 }
 
+
+async function activateBook(book_id, userId) {
+    const query = `
+        UPDATE books SET is_active = $1, updated_by = $2 WHERE book_id = $3
+    `;
+    await db.query(query, [true, userId, book_id]);
+}
+
+
+async function editBook(book, userId) {
+    validateUpdateBook(book);
+
+    const query = `
+        UPDATE books SET
+            book_title = $1,
+            book_author = $2,
+            book_sequence = $3,
+            book_category = $4,
+            shelve_id = $5,
+            cage_id = $6,
+            updated_by = $7
+        WHERE book_id = $8
+        RETURNING *;
+    `;
+    const params = [
+        book.book_title,
+        book.book_author,
+        book.book_sequence,
+        book.book_category,
+        book.shelve_id,
+        book.cage_id,
+        userId,
+        book.book_id
+    ];
+
+    const result = await db.query(query, params);
+    return new BookDto(result.rows[0]);
+}
+
+
+async function getBookByBookId(book_id) {
+    const query = `SELECT * FROM books WHERE book_id = $1`;
+    const result = await db.query(query, [book_id]);
+    return result.rows.map(row => new BookDto(row));
+}
+
+
+// Postgres-ready, index-friendly, and timezone-safe
+async function getAllBorrowedBooks(params = {}) {
+    // Defaults: past 30 days inclusive of today (Aug 1..Aug 30 if today is Aug 30)
+    const today = new Date();
+    const startDefault = new Date(today);
+    startDefault.setDate(today.getDate() - 29); // was -30
+
+    // Parse user-provided dates (accept Date or ISO-like string)
+    const parseDate = (v, fallback) =>
+        v ? (v instanceof Date ? v : new Date(v)) : fallback;
+
+    let startDate = parseDate(params.startDate, startDefault);
+    let endDate = parseDate(params.endDate, today);
+
+    if (startDate > endDate) [startDate, endDate] = [endDate, startDate];
+
+    const toYMD = (d) => {
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${y}-${m}-${day}`;
+    };
+
+    console.log('startDate:', startDate);
+    console.log('endDate:', endDate);
+
+    const query = `
+        SELECT
+            b.*,
+            bb.status,
+            bb.created_at AS borrowed_at,
+            (u.first_name || ' ' || u.last_name) AS user_fullname
+        FROM books AS b
+        JOIN book_borrowings AS bb ON b.book_id = bb.book_id
+        LEFT JOIN users AS u ON bb.user_id = u.user_id
+        WHERE
+            bb.created_at >= $1::date
+        AND bb.created_at < ($2::date + INTERVAL '1 day')
+        ORDER BY bb.created_at DESC
+    `;
+
+    const values = [toYMD(startDate), toYMD(endDate)];
+    const result = await db.query(query, values);
+    return result.rows;
+}
+
+
+async function changeBookCage(bookData, userId) {
+
+    if (!bookData.bookId || !bookData.cageId || !bookData.shelveId || !bookData.bookSequence) {
+        const err = new Error('Missing required book data');
+        err.name = 'ValidationError';
+        err.errors = [{ field: 'general', message: 'Missing required book data' }];
+        throw err;
+    }
+
+    const query = `
+        UPDATE books SET
+            cage_id = $1,
+            shelve_id = $2,
+            book_sequence = $3,
+            updated_by = $4
+        WHERE book_id = $5
+        RETURNING *;
+    `;
+    const params = [bookData.cageId, bookData.shelveId, bookData.bookSequence, userId, bookData.bookId];
+
+    const result = await db.query(query, params);
+    return new BookDto(result.rows[0]);
+}
+
+
+async function sendBookToTempStore(bookId, userId) {
+    const cageId = "702997cd-1f22-47ff-a9bd-8c23ef78f7b9";
+    const shelveId = "026eb949-6184-4584-b6ef-39a32eb608be";
+    const bookSequence = 1;
+
+    return changeBookCage({ bookId, cageId, shelveId, bookSequence }, userId);
+}
+
+
+async function reorderShelveBookSequence(shelveId, userId) {
+    if (!shelveId) {
+        const err = new Error('shelveId is required');
+        err.name = 'ValidationError';
+        throw err;
+    }
+
+    const books = (await db.query(`SELECT * FROM books WHERE shelve_id = $1 ORDER BY book_sequence ASC`, [shelveId])).rows
+
+    const booksSequence = books.map((book, index) => {
+        return {
+            book_id: book.book_id,
+            shelve_id: book.shelve_id,
+            book_sequence: book.book_sequence,
+            is_active: book.is_active,
+            created_at: book.created_at,
+            book_index: index + 1
+        }
+    })
+
+    console.log(booksSequence);
+
+}
+
+
 module.exports = {
     getBookCount,
     generalSearch,
@@ -310,5 +467,12 @@ module.exports = {
     insertBook,
     getAllBooks,
     getBooksByCageId,
-    deleteBook
+    deleteBook,
+    editBook,
+    activateBook,
+    getBookByBookId,
+    getAllBorrowedBooks,
+    changeBookCage,
+    sendBookToTempStore,
+    reorderShelveBookSequence
 };
